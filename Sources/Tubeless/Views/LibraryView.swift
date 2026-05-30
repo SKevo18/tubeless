@@ -148,13 +148,25 @@ struct TrackListPage: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(title).font(.largeTitle.bold())
                         Text("\(tracks.count) songs").foregroundStyle(.secondary)
-                        Button {
-                            if let first = tracks.first { nav.play(first, context: tracks, on: player) }
-                        } label: {
-                            Label("Play", systemImage: "play.fill")
-                                .padding(.horizontal, 18).padding(.vertical, 8)
+                        HStack(spacing: 10) {
+                            Button {
+                                if let first = tracks.first { nav.play(first, context: tracks, on: player) }
+                            } label: {
+                                Label("Play", systemImage: "play.fill")
+                                    .padding(.horizontal, 18).padding(.vertical, 8)
+                            }
+                            .buttonStyle(.borderedProminent).pointerCursor()
+                            Button { nav.playShuffled(tracks, on: player) } label: {
+                                Label("Shuffle", systemImage: "shuffle")
+                                    .padding(.horizontal, 14).padding(.vertical, 8)
+                            }
+                            .buttonStyle(.bordered).pointerCursor()
+                            Button { nav.startRadio(from: tracks, on: player) } label: {
+                                Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                                    .padding(.horizontal, 14).padding(.vertical, 8)
+                            }
+                            .buttonStyle(.bordered).pointerCursor()
                         }
-                        .buttonStyle(.borderedProminent)
                         .disabled(tracks.isEmpty)
                         .padding(.top, 4)
                     }

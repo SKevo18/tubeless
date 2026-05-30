@@ -6,6 +6,7 @@ enum Page: Hashable {
     case library
     case playlist(UUID)
     case liked
+    case artist(String)     // interpret detail page, keyed by artist name
 }
 
 @MainActor
@@ -46,6 +47,34 @@ final class AppNavigation: ObservableObject {
         player.play(track, replacingQueueWith: context)
         expanded = true
     }
+
+    // play a collection in shuffled order
+    func playShuffled(_ tracks: [Track], on player: AudioPlayer) {
+        let shuffled = tracks.shuffled()
+        guard let first = shuffled.first else { return }
+        play(first, context: shuffled, on: player)
+    }
+
+    // start a radio seeded from a collection's first track
+    func startRadio(from tracks: [Track], on player: AudioPlayer) {
+        guard let first = tracks.first else { return }
+        player.startRadio(from: first)
+        expanded = true
+    }
+
+    // page to return to from an interpret page (no full history stack needed)
+    private var lastPage: Page = .home
+
+    // open an interpret (artist) detail page; remembers where we came from
+    func showArtist(_ name: String) {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        if case .artist = page {} else { lastPage = page }
+        page = .artist(name)
+        expanded = false
+    }
+
+    func goBack() { page = lastPage }
 
     func selectSuggestion(_ s: String, on settings: AppSettings) {
         query = s

@@ -36,6 +36,27 @@ actor YTDLPService {
         try await search(query, limit: 1, preferSongs: true, ytdlp: ytdlp).first
     }
 
+    // songs *by* a specific artist: search wide, then keep only uploads on the
+    // artist's own channel (usually the auto-generated "<artist> - Topic"), so a
+    // bare name like "Marina" can't pull in unrelated title matches.
+    func songs(by artist: String, limit: Int, preferSongs: Bool, ytdlp: String) async throws -> [Track] {
+        let pool = try await search(artist, limit: max(limit * 3, 30), preferSongs: preferSongs, ytdlp: ytdlp)
+        let key = Self.normalize(artist)
+        guard !key.isEmpty else { return Array(pool.prefix(limit)) }
+        let matched = pool.filter { t in
+            let ch = Self.normalize(t.displayChannel)
+            return !ch.isEmpty && (ch.contains(key) || key.contains(ch))
+        }
+        // fall back to the raw pool only if nothing matched (very obscure artists)
+        return Array((matched.isEmpty ? pool : matched).prefix(limit))
+    }
+
+    // diacritic/punctuation-insensitive key for loose artist/channel comparison
+    static func normalize(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
+    }
+
     // resolve a direct, AVPlayer-compatible (m4a/AAC) audio URL for a video id.
     // itag 140 is the standard full-length 128k AAC track; preferring it avoids
     // partial/throttled DASH streams that cut out mid-song.

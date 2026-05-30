@@ -21,6 +21,7 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var skippedSegment: String?
     @Published var lastError: String?
     @Published var downloading: Set<String> = []
+    @Published private(set) var loadingQueue = 0    // album tracks still resolving into the queue
 
     @Published var volume: Double = AppSettings.shared.volume {
         didSet { applyVolumes(); AppSettings.shared.volume = volume }
@@ -70,6 +71,7 @@ final class AudioPlayer: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var autoplayTask: Task<Void, Never>?
     private var radioTask: Task<Void, Never>?
+    private var fillTask: Task<Void, Never>?
     private var cacheTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
 
@@ -134,6 +136,7 @@ final class AudioPlayer: ObservableObject {
     // MARK: - starting playback
 
     func play(_ track: Track, replacingQueueWith context: [Track]? = nil) {
+        cancelQueueFill()
         if let context, let idx = context.firstIndex(of: track) {
             queue = context
             currentIndex = idx
@@ -145,6 +148,32 @@ final class AudioPlayer: ObservableObject {
             currentIndex = queue.count - 1
         }
         startStream()
+    }
+
+    // resolve a list of "<artist> <title>" queries to YouTube in the background
+    // and append them to the queue as they come in (album/single playback). the
+    // first track is expected to be playing already; this fills the rest.
+    func fillQueue(resolving queries: [String], ytdlp: String) {
+        fillTask?.cancel()
+        guard !queries.isEmpty else { loadingQueue = 0; return }
+        loadingQueue = queries.count
+        fillTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for q in queries {
+                if Task.isCancelled { return }
+                if let t = try? await YTDLPService.shared.firstResult(for: q, ytdlp: ytdlp) {
+                    if Task.isCancelled { return }
+                    self.enqueue(t)
+                }
+                self.loadingQueue = max(0, self.loadingQueue - 1)
+            }
+            self.loadingQueue = 0
+        }
+    }
+
+    private func cancelQueueFill() {
+        fillTask?.cancel()
+        loadingQueue = 0
     }
 
     func playQueueItem(_ track: Track) {
@@ -249,6 +278,7 @@ final class AudioPlayer: ObservableObject {
     func startRadio(from seedTrack: Track? = nil) {
         guard let seed = seedTrack ?? currentTrack, !isBuildingRadio else { return }
         let wasCurrent = seed.id == currentTrack?.id
+        cancelQueueFill()
         isBuildingRadio = true
         radioTask?.cancel()
         let count = settings.recommendationRefreshCount

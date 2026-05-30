@@ -114,6 +114,10 @@ struct PlaylistCard: View {
         }
         .contextMenu {
             Button("Open playlist") { nav.page = .playlist(playlist.id); nav.expanded = false }
+            Divider()
+            Button("Play") { if let f = playlist.tracks.first { nav.play(f, context: playlist.tracks, on: player) } }
+            Button("Shuffle") { nav.playShuffled(playlist.tracks, on: player) }
+            Button("Start radio") { nav.startRadio(from: playlist.tracks, on: player) }
         }
     }
 }

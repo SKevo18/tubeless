@@ -42,8 +42,9 @@ struct ExpandedPlayerView: View {
                 Text(player.currentTrack?.title ?? "Nothing playing")
                     .font(.title2.bold()).multilineTextAlignment(.center)
                     .lineLimit(2).minimumScaleFactor(0.6)
-                Text(player.currentTrack?.displayChannel ?? "")
-                    .font(.title3).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.6)
+                if let ch = player.currentTrack?.displayChannel {
+                    ArtistLink(name: ch, font: .title3).minimumScaleFactor(0.6)
+                }
             }
             if let track = player.currentTrack {
                 HStack(spacing: 22) {
@@ -74,6 +75,9 @@ struct ExpandedPlayerView: View {
                 if player.isBuildingRadio {
                     ProgressView().controlSize(.small)
                     Text("building radio…").font(.caption).foregroundStyle(.secondary)
+                } else if player.loadingQueue > 0 {
+                    ProgressView().controlSize(.small)
+                    Text("loading \(player.loadingQueue) more…").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button { player.shuffleUpcoming() } label: { Image(systemName: "shuffle") }

@@ -4,6 +4,7 @@ struct SidebarView: View {
     @Binding var showSettings: Bool
     @EnvironmentObject var nav: AppNavigation
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var player: AudioPlayer
     @State private var newPlaylistName = ""
     @State private var creating = false
     @State private var importing = false
@@ -56,6 +57,7 @@ struct SidebarView: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.background.opacity(0.6))
+        .dismissesFocusOnTap()
         .alert("New Playlist", isPresented: $creating) {
             TextField("Name", text: $newPlaylistName)
             Button("Create") {
@@ -123,6 +125,10 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button("Play") { if let f = p.tracks.first { nav.play(f, context: p.tracks, on: player) } }
+            Button("Shuffle") { nav.playShuffled(p.tracks, on: player) }
+            Button("Start radio") { nav.startRadio(from: p.tracks, on: player) }
+            Divider()
             Button("Delete", role: .destructive) { library.deletePlaylist(p.id) }
         }
     }

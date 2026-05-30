@@ -36,6 +36,7 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .dismissesFocusOnTap()
         .animation(.easeInOut(duration: 0.22), value: nav.expanded)
         .overlay(alignment: .topLeading) {
             if nav.showSuggestions && !nav.suggestions.isEmpty {
@@ -51,6 +52,7 @@ struct ContentView: View {
         case .library: LibraryView()
         case .liked: LikedView()
         case .playlist(let id): PlaylistView(playlistID: id)
+        case .artist(let name): ArtistView(name: name)
         }
     }
 }

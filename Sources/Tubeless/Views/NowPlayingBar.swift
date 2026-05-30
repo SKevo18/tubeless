@@ -31,6 +31,7 @@ struct NowPlayingBar: View {
         }
         .padding(.vertical, 9)
         .background(.bar)
+        .dismissesFocusOnTap()
     }
 
     @ViewBuilder private var skipToast: some View {
@@ -51,8 +52,11 @@ struct NowPlayingBar: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.currentTrack?.title ?? "Nothing playing")
                     .font(.subheadline.weight(.medium)).lineLimit(1).minimumScaleFactor(0.85)
-                Text(player.currentTrack?.displayChannel ?? "—")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.85)
+                if let ch = player.currentTrack?.displayChannel {
+                    ArtistLink(name: ch).minimumScaleFactor(0.85)
+                } else {
+                    Text("—").font(.caption).foregroundStyle(.secondary)
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture { if player.currentTrack != nil { nav.expanded.toggle() } }

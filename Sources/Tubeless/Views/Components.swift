@@ -50,6 +50,15 @@ private struct TintWhenActive: ViewModifier {
 }
 
 extension View {
+    // resigns the focused text field (e.g. the search box keeps blinking until
+    // first responder moves) when this area is clicked. simultaneous so it
+    // doesn't swallow the click from whatever control was actually tapped.
+    func dismissesFocusOnTap() -> some View {
+        simultaneousGesture(TapGesture().onEnded {
+            DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+        })
+    }
+
     // pointing-hand cursor on hover, for clickable non-button rows/cards
     func pointerCursor() -> some View {
         onContinuousHover { phase in
@@ -405,6 +414,27 @@ struct ShareButton: View {
     }
 }
 
+// clickable interpret (artist) name — opens the artist page; underlines on hover.
+// uses a tap gesture (not a Button) so it composes inside tap-to-play rows.
+struct ArtistLink: View {
+    let name: String
+    var font: Font = .caption
+    @EnvironmentObject var nav: AppNavigation
+    @State private var hovering = false
+
+    var body: some View {
+        Text(name)
+            .font(font)
+            .foregroundStyle(hovering ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .underline(hovering)
+            .lineLimit(1)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .pointerCursor()
+            .onTapGesture { nav.showArtist(name) }
+    }
+}
+
 struct SectionHeader: View {
     let title: String
     var body: some View {
@@ -456,7 +486,7 @@ struct TrackRow: View {
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(.tint.opacity(0.2), in: Capsule())
                     }
-                    Text(track.displayChannel).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    ArtistLink(name: track.displayChannel)
                 }
             }
             Spacer()
@@ -537,8 +567,8 @@ struct TrackCard: View {
             }
             Text(track.cleanedTitle.isEmpty ? track.title : track.cleanedTitle)
                 .font(.subheadline).lineLimit(1).frame(width: 148, alignment: .leading)
-            Text(track.displayChannel).font(.caption).foregroundStyle(.secondary)
-                .lineLimit(1).frame(width: 148, alignment: .leading)
+            ArtistLink(name: track.displayChannel)
+                .frame(width: 148, alignment: .leading)
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
