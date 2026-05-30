@@ -21,6 +21,7 @@ struct ContentView: View {
             NowPlayingBar()
         }
         .background(.background)
+        .tooltipOverlay()
         .sheet(isPresented: $showSettings) {
             SettingsView().environmentObject(settings)
         }
@@ -72,7 +73,7 @@ struct TopBar: View {
                     Button { nav.query = ""; nav.searchResults = []; nav.suggestions = [] } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .buttonStyle(.icon).foregroundStyle(.secondary).tooltip("Clear search")
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -117,7 +118,7 @@ struct SuggestionsList: View {
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerCursor()
                 if s != nav.suggestions.last { Divider() }
             }
         }

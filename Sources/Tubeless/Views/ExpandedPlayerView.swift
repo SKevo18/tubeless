@@ -31,7 +31,7 @@ struct ExpandedPlayerView: View {
                 Button { nav.expanded = false } label: {
                     Image(systemName: "chevron.down").font(.title2.weight(.semibold)).padding(6)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.icon).tooltip("Collapse player")
                 Spacer()
             }
             Spacer(minLength: 0)
@@ -51,12 +51,12 @@ struct ExpandedPlayerView: View {
                         Image(systemName: library.isLiked(track) ? "heart.fill" : "heart")
                             .foregroundStyle(library.isLiked(track) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.icon).tooltip(library.isLiked(track) ? "Unlike" : "Like")
                     if player.downloading.contains(track.id) {
                         ProgressView().controlSize(.small)
                     } else {
                         Button { player.download(track) } label: { Image(systemName: "arrow.down.circle") }
-                            .buttonStyle(.plain).foregroundStyle(.secondary).help("Download MP3")
+                            .buttonStyle(.icon).foregroundStyle(.secondary).tooltip("Download MP3")
                     }
                     ShareButton(track: track).foregroundStyle(.secondary)
                 }
@@ -77,12 +77,12 @@ struct ExpandedPlayerView: View {
                 }
                 Spacer()
                 Button { player.shuffleUpcoming() } label: { Image(systemName: "shuffle") }
-                    .buttonStyle(.plain).disabled(player.queue.count < 2).help("Shuffle what's next")
+                    .buttonStyle(.icon).disabled(player.queue.count < 2).tooltip("Shuffle what's next")
                 if player.isBuildingRadio {
                     ProgressView().controlSize(.small)
                 } else {
                     Button { player.startRadio() } label: { Image(systemName: "dot.radiowaves.left.and.right") }
-                        .buttonStyle(.plain).help("Rebuild queue as a radio")
+                        .buttonStyle(.icon).tooltip("Rebuild queue as a radio")
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
@@ -134,6 +134,10 @@ struct ExpandedPlayerView: View {
                 .onPreferenceChange(RowOffsetKey.self) { rowY = $0 }
                 .onChange(of: player.currentIndex) { _ in
                     withAnimation { proxy.scrollTo(player.currentTrack?.id, anchor: .center) }
+                }
+                .onAppear {
+                    // focus the song that's playing when the queue panel opens
+                    if let id = player.currentTrack?.id { proxy.scrollTo(id, anchor: .center) }
                 }
                 // while dragging a row, hovering the top/bottom edge auto-scrolls the
                 // queue so it can be dropped beyond the visible window

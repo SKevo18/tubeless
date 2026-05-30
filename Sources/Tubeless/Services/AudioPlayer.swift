@@ -444,9 +444,12 @@ final class AudioPlayer: ObservableObject {
     private func maintainCache() {
         let n = max(0, settings.prebufferCount)
         var window: [Track] = []
+        // currentIndex can transiently exceed the queue (e.g. queue reassigned
+        // before currentIndex during a radio rebuild) — clamp so lo <= hi always
         if currentIndex >= 0 && !queue.isEmpty {
-            let lo = max(0, currentIndex - n)
-            let hi = min(queue.count - 1, currentIndex + n)
+            let idx = min(currentIndex, queue.count - 1)
+            let lo = max(0, idx - n)
+            let hi = min(queue.count - 1, idx + n)
             window += Array(queue[lo...hi])
         }
         window += Array(autoplay.prefix(n))

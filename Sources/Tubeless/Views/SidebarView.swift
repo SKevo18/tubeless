@@ -28,11 +28,11 @@ struct SidebarView: View {
                 Spacer()
                 if importBusy { ProgressView().controlSize(.small) }
                 Button { importURL = ""; importing = true } label: { Image(systemName: "square.and.arrow.down") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Import a YouTube playlist by link")
+                    .buttonStyle(.icon).foregroundStyle(.secondary)
+                    .tooltip("Import a YouTube playlist by link")
                 Button { creating = true } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("New empty playlist")
+                    .buttonStyle(.icon).foregroundStyle(.secondary)
+                    .tooltip("New empty playlist")
             }
             .padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 6)
 
@@ -49,9 +49,10 @@ struct SidebarView: View {
             Button { showSettings = true } label: {
                 Label("Settings", systemImage: "gearshape")
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    .rowLink()
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 18).padding(.vertical, 12)
+            .buttonStyle(.plain).tooltip("Settings")
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.background.opacity(0.6))
@@ -102,9 +103,7 @@ struct SidebarView: View {
                 }
             }
             .padding(.horizontal, 18).padding(.vertical, 9)
-            .background(selected ? Color.primary.opacity(0.08) : .clear)
-            .foregroundStyle(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-            .contentShape(Rectangle())
+            .rowLink(selected: selected)
         }
         .buttonStyle(.plain)
     }
@@ -120,8 +119,7 @@ struct SidebarView: View {
                 Spacer()
             }
             .padding(.horizontal, 18).padding(.vertical, 7)
-            .background(selected ? Color.primary.opacity(0.08) : .clear)
-            .contentShape(Rectangle())
+            .rowLink(selected: selected)
         }
         .buttonStyle(.plain)
         .contextMenu {

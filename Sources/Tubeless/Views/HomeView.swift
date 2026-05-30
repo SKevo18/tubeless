@@ -41,8 +41,8 @@ struct HomeView: View {
                 Button { nav.loadDiscovery(force: true) } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
-                .disabled(nav.discoveryLoading).help("Refresh recommendations")
+                .buttonStyle(.icon).foregroundStyle(.secondary)
+                .disabled(nav.discoveryLoading).tooltip("Refresh recommendations")
             }
             .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 10)
 

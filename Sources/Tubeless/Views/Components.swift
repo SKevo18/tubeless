@@ -2,6 +2,167 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
 
+// hover/press feedback for icon buttons: tints on hover, dims + shrinks while
+// pressed, and shows the pointing-hand cursor. Leaves the label's idle colour
+// untouched so per-state colours (e.g. a liked heart) still show through.
+struct IconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { IconButtonBody(configuration: configuration) }
+
+    private struct IconButtonBody: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .modifier(TintWhenActive(active: isEnabled && (hovering || configuration.isPressed)))
+                .opacity(configuration.isPressed ? 0.55 : 1)
+                .scaleEffect(configuration.isPressed ? 0.86 : 1)
+                .animation(.easeOut(duration: 0.12), value: hovering)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+                .contentShape(Rectangle())
+                // onContinuousHover re-asserts the cursor on every mouse move, so a
+                // hover-driven redraw (tint/scale) can't leave it stuck on first frame
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active:
+                        if !hovering { hovering = true }
+                        if isEnabled { NSCursor.pointingHand.set() }
+                    case .ended:
+                        hovering = false
+                        NSCursor.arrow.set()
+                    }
+                }
+        }
+    }
+}
+
+extension ButtonStyle where Self == IconButtonStyle {
+    static var icon: IconButtonStyle { IconButtonStyle() }
+}
+
+private struct TintWhenActive: ViewModifier {
+    let active: Bool
+    func body(content: Content) -> some View {
+        if active { content.foregroundStyle(.tint) } else { content }
+    }
+}
+
+extension View {
+    // pointing-hand cursor on hover, for clickable non-button rows/cards
+    func pointerCursor() -> some View {
+        onContinuousHover { phase in
+            switch phase {
+            case .active: NSCursor.pointingHand.set()
+            case .ended: NSCursor.arrow.set()
+            }
+        }
+    }
+}
+
+// hover + selection highlight and pointer cursor for sidebar-style row links
+struct RowLinkStyle: ViewModifier {
+    var selected: Bool
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(selected || hovering ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+            .background(selected ? Color.primary.opacity(0.09)
+                        : (hovering ? Color.primary.opacity(0.05) : .clear))
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    if !hovering { hovering = true }
+                    NSCursor.pointingHand.set()
+                case .ended:
+                    hovering = false
+                    NSCursor.arrow.set()
+                }
+            }
+    }
+}
+
+extension View {
+    func rowLink(selected: Bool = false) -> some View { modifier(RowLinkStyle(selected: selected)) }
+}
+
+// MARK: - tooltips
+//
+// custom tooltip tied to our own hover state, rendered once at the top level.
+// avoids AppKit's .help() bugs: slow to appear, and stuck on screen when a
+// hover-driven redraw tears down the tracking rect before the popup hides.
+
+struct TooltipData { let text: String; let anchor: Anchor<CGRect> }
+
+struct TooltipKey: PreferenceKey {
+    static let defaultValue: TooltipData? = nil
+    static func reduce(value: inout TooltipData?, nextValue: () -> TooltipData?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+private struct TooltipModifier: ViewModifier {
+    let text: String
+    @State private var visible = false
+    @State private var showTask: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .anchorPreference(key: TooltipKey.self, value: .bounds) { anchor in
+                visible && !text.isEmpty ? TooltipData(text: text, anchor: anchor) : nil
+            }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    guard showTask == nil, !visible else { return }
+                    showTask = Task {
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                        if !Task.isCancelled { visible = true }
+                    }
+                case .ended:
+                    showTask?.cancel(); showTask = nil
+                    visible = false
+                }
+            }
+    }
+}
+
+extension View {
+    func tooltip(_ text: String) -> some View { modifier(TooltipModifier(text: text)) }
+
+    // renders the active tooltip above its anchor; attach once near the root
+    func tooltipOverlay() -> some View {
+        overlayPreferenceValue(TooltipKey.self) { data in
+            GeometryReader { proxy in
+                if let data {
+                    let r = proxy[data.anchor]
+                    TooltipBubble(text: data.text)
+                        .position(x: min(max(r.midX, 70), proxy.size.width - 70),
+                                  y: max(r.minY - 16, 14))
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct TooltipBubble: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .lineLimit(1)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+            .shadow(radius: 4, y: 1)
+            .fixedSize()
+    }
+}
+
 // drag-to-reorder for the custom ScrollView track lists (List's .onMove isn't
 // available here). Rather than swapping live as the cursor passes each row
 // (which makes the list jitter), it only marks the hovered row as the drop
@@ -130,6 +291,7 @@ struct PlayPauseArtwork: View {
             }
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
+            .pointerCursor()
             .onTapGesture { if !player.isLoading { player.togglePlayPause() } }
             .animation(.easeInOut(duration: 0.12), value: hovering)
             .animation(.easeInOut(duration: 0.12), value: player.isLoading)
@@ -154,8 +316,8 @@ struct ShareButton: View {
         } label: {
             Image(systemName: "square.and.arrow.up")
         }
-        .buttonStyle(.plain)
-        .help("Share link")
+        .buttonStyle(.icon)
+        .tooltip("Share link")
         .popover(isPresented: $showing, arrowEdge: .bottom) { popover }
     }
 
@@ -265,7 +427,8 @@ struct TrackRow: View {
                     Image(systemName: library.isLiked(track) ? "heart.fill" : "heart")
                         .foregroundStyle(library.isLiked(track) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.icon)
+                .tooltip(library.isLiked(track) ? "Unlike" : "Like")
             }
             Text(track.durationText).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             if hovering {
@@ -301,6 +464,7 @@ struct TrackRow: View {
                     }
                 } label: { Image(systemName: "ellipsis") }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .foregroundStyle(.secondary).tooltip("More actions").pointerCursor()
             }
         }
         .padding(.vertical, 4).padding(.horizontal, 8)
@@ -309,6 +473,7 @@ struct TrackRow: View {
         .opacity(dimmed && !isCurrent ? 0.55 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .pointerCursor()
         .onTapGesture { onPlay() }
     }
 }
@@ -338,6 +503,7 @@ struct TrackCard: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .pointerCursor()
         .onTapGesture { nav.play(track, context: context, on: player) }
     }
 }

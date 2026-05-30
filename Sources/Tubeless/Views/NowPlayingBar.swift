@@ -56,12 +56,15 @@ struct NowPlayingBar: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { if player.currentTrack != nil { nav.expanded.toggle() } }
+            .pointerCursor()
+            .tooltip("Open player")
             if let track = player.currentTrack {
                 Button { library.toggleLike(track) } label: {
                     Image(systemName: library.isLiked(track) ? "heart.fill" : "heart")
                         .foregroundStyle(library.isLiked(track) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 }
-                .buttonStyle(.plain).font(.callout)
+                .buttonStyle(.icon).font(.callout)
+                .tooltip(library.isLiked(track) ? "Unlike" : "Like")
             }
         }
     }
@@ -69,9 +72,9 @@ struct NowPlayingBar: View {
     private var transport: some View {
         HStack(spacing: 16) {
             Button { player.shuffleUpcoming() } label: { Image(systemName: "shuffle") }
-                .buttonStyle(.plain).disabled(player.queue.count < 2).help("Shuffle what's next")
+                .buttonStyle(.icon).disabled(player.queue.count < 2).tooltip("Shuffle what's next")
             Button(action: player.previous) { Image(systemName: "backward.fill") }
-                .buttonStyle(.plain)
+                .buttonStyle(.icon).tooltip("Previous")
             ZStack {
                 if player.isLoading {
                     ProgressView().controlSize(.small)
@@ -80,17 +83,17 @@ struct NowPlayingBar: View {
                         Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                             .font(.system(size: 36)).foregroundStyle(.tint)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.icon).tooltip(player.isPlaying ? "Pause" : "Play")
                 }
             }
             .frame(width: 38, height: 38)
             Button(action: player.next) { Image(systemName: "forward.fill") }
-                .buttonStyle(.plain).disabled(!player.hasNext)
+                .buttonStyle(.icon).disabled(!player.hasNext).tooltip("Next")
             Button(action: player.cycleRepeat) {
                 Image(systemName: player.repeatMode == .song ? "repeat.1" : "repeat")
                     .foregroundStyle(player.repeatMode == .off ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
             }
-            .buttonStyle(.plain).help("Repeat: \(repeatLabel)")
+            .buttonStyle(.icon).tooltip("Repeat: \(repeatLabel)")
         }
         .font(.title3)
     }
@@ -106,17 +109,17 @@ struct NowPlayingBar: View {
     private var rightControls: some View {
         HStack(spacing: 12) {
             Button { player.startRadio() } label: { Image(systemName: "dot.radiowaves.left.and.right") }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
-                .disabled(player.currentTrack == nil).help("Start radio")
+                .buttonStyle(.icon).foregroundStyle(.secondary)
+                .disabled(player.currentTrack == nil).tooltip("Start radio")
             Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.secondary)
             Slider(value: $player.volume, in: 0...1)
             Button { nav.expanded.toggle() } label: {
                 Image(systemName: nav.expanded ? "chevron.down" : "chevron.up")
                     .font(.title2.weight(.semibold)).padding(8).contentShape(Rectangle())
             }
-            .buttonStyle(.plain).foregroundStyle(.secondary)
+            .buttonStyle(.icon).foregroundStyle(.secondary)
             .disabled(player.currentTrack == nil)
-            .help(nav.expanded ? "Hide player" : "Show player")
+            .tooltip(nav.expanded ? "Hide player" : "Show player")
         }
     }
 

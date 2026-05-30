@@ -63,6 +63,7 @@ struct LibraryView: View {
         }
         .padding(.vertical, 4).padding(.horizontal, 8)
         .contentShape(Rectangle())
+        .pointerCursor()
         .onTapGesture { nav.play(stat.track, context: context, on: player) }
     }
 
@@ -91,7 +92,7 @@ struct LibraryView: View {
             .padding(.horizontal, 20).padding(.vertical, 6)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerCursor()
     }
 }
 
