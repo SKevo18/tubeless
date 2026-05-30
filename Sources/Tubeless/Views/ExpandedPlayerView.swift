@@ -1,9 +1,15 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ExpandedPlayerView: View {
     @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var nav: AppNavigation
     @EnvironmentObject var library: LibraryStore
+    @State private var dragging: Track?
+    @State private var dropTarget: String?
+    @State private var autoScroll = 0       // -1 up / +1 down while hovering an edge
+    @State private var rowY: [String: CGFloat] = [:]   // each queue row's top, in scroll space
+    @State private var viewportH: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -52,6 +58,7 @@ struct ExpandedPlayerView: View {
                         Button { player.download(track) } label: { Image(systemName: "arrow.down.circle") }
                             .buttonStyle(.plain).foregroundStyle(.secondary).help("Download MP3")
                     }
+                    ShareButton(track: track).foregroundStyle(.secondary)
                 }
                 .font(.title2)
             }
@@ -92,6 +99,12 @@ struct ExpandedPlayerView: View {
                                 player.playQueueItem(t)
                             }
                             .id(t.id)
+                            .reorderable(t, in: player.queue, dragging: $dragging, dropTarget: $dropTarget,
+                                         move: { player.reorderQueue(from: $0, to: $1) })
+                            .background(GeometryReader { g in
+                                Color.clear.preference(key: RowOffsetKey.self,
+                                                       value: [t.id: g.frame(in: .named("queue")).minY])
+                            })
                         }
 
                         if !player.autoplay.isEmpty {
@@ -113,16 +126,74 @@ struct ExpandedPlayerView: View {
                     .padding(.horizontal, 10).padding(.bottom, 12)
                     .animation(.easeInOut(duration: 0.4), value: player.queue)
                 }
+                .coordinateSpace(name: "queue")
+                .background(GeometryReader { g in
+                    Color.clear.onAppear { viewportH = g.size.height }
+                        .onChange(of: g.size.height) { viewportH = $0 }
+                })
+                .onPreferenceChange(RowOffsetKey.self) { rowY = $0 }
                 .onChange(of: player.currentIndex) { _ in
                     withAnimation { proxy.scrollTo(player.currentTrack?.id, anchor: .center) }
                 }
+                // while dragging a row, hovering the top/bottom edge auto-scrolls the
+                // queue so it can be dropped beyond the visible window
+                .overlay(alignment: .top) { edgeZone(-1) }
+                .overlay(alignment: .bottom) { edgeZone(1) }
+                .task(id: autoScroll) {
+                    guard autoScroll != 0 else { return }
+                    while !Task.isCancelled && autoScroll != 0 {
+                        let ids = player.queue.map(\.id)
+                        // step one row past whatever is currently at the edge, reading
+                        // the live scroll position so it continues from wherever we are
+                        if let target = stepTarget(autoScroll, ids: ids) {
+                            withAnimation(.linear(duration: 0.32)) {
+                                proxy.scrollTo(ids[target], anchor: autoScroll < 0 ? .top : .bottom)
+                            }
+                        }
+                        try? await Task.sleep(nanoseconds: 280_000_000)
+                    }
+                }
             }
         }
+    }
+
+    // next row to bring into view, based on the current visible range
+    private func stepTarget(_ direction: Int, ids: [String]) -> Int? {
+        guard !ids.isEmpty else { return nil }
+        if direction > 0 {
+            let last = ids.lastIndex { (rowY[$0] ?? .infinity) < viewportH - 8 } ?? (ids.count - 1)
+            return min(ids.count - 1, last + 1)
+        } else {
+            let first = ids.firstIndex { (rowY[$0] ?? -.infinity) > -46 } ?? 0
+            return max(0, first - 1)
+        }
+    }
+
+    // transparent edge strip that drives auto-scroll while a drag hovers it
+    private func edgeZone(_ direction: Int) -> some View {
+        Color.clear
+            .frame(height: 36)
+            .allowsHitTesting(dragging != nil)
+            .onDrop(of: [.url, .text], isTargeted: Binding(
+                get: { autoScroll == direction },
+                set: { targeted in
+                    if targeted { autoScroll = direction }
+                    else if autoScroll == direction { autoScroll = 0 }
+                })) { _ in false }
     }
 
     // during a radio rebuild, dim every song except the one still playing
     private func rowDimmed(idx: Int, id: String) -> Bool {
         if player.isBuildingRadio { return id != player.currentTrack?.id }
         return idx < player.currentIndex
+    }
+}
+
+// reports each queue row's top offset within the scroll view so edge auto-scroll
+// can read the real visible range instead of guessing
+private struct RowOffsetKey: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }

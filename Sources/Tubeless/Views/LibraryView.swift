@@ -130,6 +130,9 @@ struct TrackListPage: View {
     @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var nav: AppNavigation
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var library: LibraryStore
+    @State private var dragging: Track?
+    @State private var dropTarget: String?
 
     var body: some View {
         ScrollView {
@@ -162,9 +165,17 @@ struct TrackListPage: View {
                     Text("No songs yet.").foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 160)
                 } else {
-                    LazyVStack(spacing: 2) {
+                    VStack(spacing: 2) {
                         ForEach(tracks) { t in
-                            TrackRow(track: t, inPlaylist: playlistID) { nav.play(t, context: tracks, on: player) }
+                            let row = TrackRow(track: t, inPlaylist: playlistID) {
+                                nav.play(t, context: tracks, on: player)
+                            }
+                            if let pid = playlistID {
+                                row.reorderable(t, in: tracks, dragging: $dragging, dropTarget: $dropTarget,
+                                                move: { library.moveInPlaylist(pid, from: $0, to: $1) })
+                            } else {
+                                row
+                            }
                         }
                     }
                     .padding(.horizontal, 12)

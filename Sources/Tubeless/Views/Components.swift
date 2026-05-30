@@ -1,4 +1,86 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import AppKit
+
+// drag-to-reorder for the custom ScrollView track lists (List's .onMove isn't
+// available here). Rather than swapping live as the cursor passes each row
+// (which makes the list jitter), it only marks the hovered row as the drop
+// target and commits a single move on drop. `move` gets source/target indices.
+struct TrackDropDelegate: DropDelegate {
+    let item: Track
+    let tracks: [Track]
+    @Binding var dragging: Track?
+    @Binding var dropTarget: String?
+    let move: (Int, Int) -> Void
+
+    func dropEntered(info: DropInfo) {
+        if dragging?.id != item.id { dropTarget = item.id }
+    }
+
+    // clear the insertion bar when the cursor leaves this row without entering
+    // another — including when the drag leaves the app entirely
+    func dropExited(info: DropInfo) {
+        if dropTarget == item.id { dropTarget = nil }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { dragging = nil; dropTarget = nil }
+        guard let dragging, dragging.id != item.id,
+              let from = tracks.firstIndex(where: { $0.id == dragging.id }),
+              let to = tracks.firstIndex(where: { $0.id == item.id }) else { return false }
+        withAnimation(.easeInOut(duration: 0.25)) { move(from, to) }
+        return true
+    }
+}
+
+extension View {
+    // makes a track row draggable + a drop target for reordering within `tracks`
+    func reorderable(_ track: Track, in tracks: [Track],
+                     dragging: Binding<Track?>, dropTarget: Binding<String?>,
+                     move: @escaping (Int, Int) -> Void) -> some View {
+        modifier(ReorderableRow(track: track, tracks: tracks,
+                                dragging: dragging, dropTarget: dropTarget, move: move))
+    }
+}
+
+private struct ReorderableRow: ViewModifier {
+    let track: Track
+    let tracks: [Track]
+    @Binding var dragging: Track?
+    @Binding var dropTarget: String?
+    let move: (Int, Int) -> Void
+
+    // bar sits on the side the dragged row is coming from, so it reads as "lands here"
+    private var topEdge: Bool {
+        guard let d = dragging,
+              let from = tracks.firstIndex(where: { $0.id == d.id }),
+              let to = tracks.firstIndex(where: { $0.id == track.id }) else { return true }
+        return from > to
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: topEdge ? .top : .bottom) {
+                if dropTarget == track.id, dragging?.id != track.id {
+                    Capsule().fill(.tint).frame(height: 2).padding(.horizontal, 6)
+                }
+            }
+            .onDrag {
+                dragging = track
+                // dropping outside the app pastes the YouTube Music link; vend both
+                // a URL (browsers) and plain text (editors/fields)
+                let provider = NSItemProvider()
+                provider.registerObject(track.musicURL() as NSURL, visibility: .all)
+                provider.registerObject(track.musicURL().absoluteString as NSString, visibility: .all)
+                return provider
+            }
+            .onDrop(of: [.url, .text], delegate: TrackDropDelegate(
+                item: track, tracks: tracks, dragging: $dragging,
+                dropTarget: $dropTarget, move: move))
+    }
+}
 
 // square artwork with graceful placeholder
 struct Artwork: View {
@@ -51,6 +133,74 @@ struct PlayPauseArtwork: View {
             .onTapGesture { if !player.isLoading { player.togglePlayPause() } }
             .animation(.easeInOut(duration: 0.12), value: hovering)
             .animation(.easeInOut(duration: 0.12), value: player.isLoading)
+    }
+}
+
+// copies a track's YouTube Music link, optionally starting at a timestamp
+// (defaults to the current playback position)
+struct ShareButton: View {
+    let track: Track
+    @EnvironmentObject var player: AudioPlayer
+    @State private var showing = false
+    @State private var withTimestamp = false
+    @State private var timestamp = ""
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            timestamp = Self.format(Int(player.currentTime))
+            copied = false
+            showing = true
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+        }
+        .buttonStyle(.plain)
+        .help("Share link")
+        .popover(isPresented: $showing, arrowEdge: .bottom) { popover }
+    }
+
+    private var link: URL {
+        track.musicURL(at: withTimestamp ? Self.seconds(from: timestamp) : nil)
+    }
+
+    private var popover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Share").font(.headline)
+            Text(link.absoluteString)
+                .font(.caption.monospaced()).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+            Toggle("Start at timestamp", isOn: $withTimestamp)
+            if withTimestamp {
+                TextField("m:ss", text: $timestamp)
+                    .textFieldStyle(.roundedBorder).frame(width: 90)
+            }
+            Button {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(link.absoluteString, forType: .string)
+                copied = true
+            } label: {
+                Label(copied ? "Copied!" : "Copy link", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(14)
+        .frame(width: 250)
+        .onChange(of: withTimestamp) { _ in copied = false }
+        .onChange(of: timestamp) { _ in copied = false }
+    }
+
+    // "m:ss" / "h:mm:ss" / bare seconds → seconds
+    private static func seconds(from text: String) -> Int {
+        let parts = text.split(separator: ":").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+        guard !parts.isEmpty else { return 0 }
+        return parts.reduce(0) { $0 * 60 + $1 }
+    }
+
+    private static func format(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 
@@ -131,6 +281,11 @@ struct TrackRow: View {
                     } else {
                         Button { player.download(track) } label: { Label("Download MP3", systemImage: "arrow.down.circle") }
                     }
+                    Button {
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(track.musicURL().absoluteString, forType: .string)
+                    } label: { Label("Copy link", systemImage: "square.and.arrow.up") }
                     if !library.playlists.isEmpty {
                         Menu("Add to playlist") {
                             ForEach(library.playlists) { p in

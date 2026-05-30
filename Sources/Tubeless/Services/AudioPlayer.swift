@@ -225,9 +225,12 @@ final class AudioPlayer: ObservableObject {
         if removingCurrent { currentIndex = min(currentIndex, queue.count - 1); startStream() }
     }
 
-    func moveInQueue(from offsets: IndexSet, to destination: Int) {
+    // drag-reorder a single row; keeps the pointer on whatever is playing
+    func reorderQueue(from: Int, to: Int) {
+        guard queue.indices.contains(from), queue.indices.contains(to), from != to else { return }
         let id = currentTrack?.id
-        queue.move(fromOffsets: offsets, toOffset: destination)
+        let t = queue.remove(at: from)
+        queue.insert(t, at: to)
         if let id, let idx = queue.firstIndex(where: { $0.id == id }) { currentIndex = idx }
     }
 

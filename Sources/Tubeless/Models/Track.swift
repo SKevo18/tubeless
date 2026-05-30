@@ -15,6 +15,13 @@ struct Track: Identifiable, Hashable, Codable {
         URL(string: "https://www.youtube.com/watch?v=\(id)")!
     }
 
+    // shareable YouTube Music link, optionally starting at a given second
+    func musicURL(at seconds: Int? = nil) -> URL {
+        var s = "https://music.youtube.com/watch?v=\(id)"
+        if let seconds, seconds > 0 { s += "&t=\(seconds)" }
+        return URL(string: s)!
+    }
+
     // youtube auto-generated "song" uploads live on "<artist> - Topic" channels
     var isTopic: Bool { channel.hasSuffix("- Topic") }
 

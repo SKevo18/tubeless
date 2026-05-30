@@ -87,6 +87,16 @@ final class LibraryStore: ObservableObject {
         save()
     }
 
+    // drag-reorder a single track within a playlist
+    func moveInPlaylist(_ playlistID: UUID, from: Int, to: Int) {
+        guard let i = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        guard playlists[i].tracks.indices.contains(from),
+              playlists[i].tracks.indices.contains(to), from != to else { return }
+        let t = playlists[i].tracks.remove(at: from)
+        playlists[i].tracks.insert(t, at: to)
+        save()
+    }
+
     // MARK: - scoring
 
     // accumulate listen time + play count for a finished play

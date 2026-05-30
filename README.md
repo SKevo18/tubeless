@@ -1,8 +1,8 @@
 # Tubeless Audio
 
-A lightweight, custom-UI macOS audio player for YouTube Music, minus the bullshit.
-No browser, no embedded player, no Electron — native SwiftUI over `yt-dlp` + `AVPlayer`,
-styled like YouTube Music.
+A minimalistic and lightweight custom-UI macOS audio player for YouTube Music w/ song recommendations, minus the bullshit.
+No browser, no embedded player, no Electron, no ads; just blazing-fast, native SwiftUI over `yt-dlp` + `AVPlayer`,
+styled similar to YouTube Music.
 
 ## Features
 
@@ -66,6 +66,7 @@ styled like YouTube Music.
 ./run.sh            # build (release), assemble Tubeless.app, launch
 ./run.sh --debug    # faster compile for iterating
 ./run.sh --clean    # wipe build artifacts and the .app first
+./run.sh --build    # build only (do not run), echo the .app path
 ```
 
 ## Optional setup
