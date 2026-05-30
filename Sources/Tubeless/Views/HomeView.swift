@@ -42,7 +42,7 @@ struct HomeView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.icon).foregroundStyle(.secondary)
-                .disabled(nav.discoveryLoading).tooltip("Refresh recommendations")
+                .tooltip("Refresh recommendations")
             }
             .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 10)
 
@@ -89,14 +89,31 @@ struct HomeView: View {
 struct PlaylistCard: View {
     let playlist: Playlist
     @EnvironmentObject var nav: AppNavigation
+    @EnvironmentObject var player: AudioPlayer
+    @State private var hovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Artwork(url: playlist.tracks.first?.thumbnailURL, size: 148, corner: 10)
+            ZStack(alignment: .bottomTrailing) {
+                Artwork(url: playlist.tracks.first?.thumbnailURL, size: 148, corner: 10)
+                if hovering && !playlist.tracks.isEmpty {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 34)).foregroundStyle(.white, .tint)
+                        .padding(8).shadow(radius: 4)
+                }
+            }
             Text(playlist.name).font(.subheadline).lineLimit(1).frame(width: 148, alignment: .leading)
             Text("\(playlist.tracks.count) songs").font(.caption).foregroundStyle(.secondary)
+                .frame(width: 148, alignment: .leading)
         }
         .contentShape(Rectangle())
-        .onTapGesture { nav.page = .playlist(playlist.id); nav.expanded = false }
+        .onHover { hovering = $0 }
+        .pointerCursor()
+        .onTapGesture {
+            if let first = playlist.tracks.first { nav.play(first, context: playlist.tracks, on: player) }
+        }
+        .contextMenu {
+            Button("Open playlist") { nav.page = .playlist(playlist.id); nav.expanded = false }
+        }
     }
 }
