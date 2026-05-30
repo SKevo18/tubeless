@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
+import ImageIO
 
 // hover/press feedback for icon buttons: tints on hover, dims + shrinks while
 // pressed, and shows the pointing-hand cursor. Leaves the label's idle colour
@@ -243,21 +244,59 @@ private struct ReorderableRow: ViewModifier {
     }
 }
 
+// downsamples remote artwork to the display size and caches the decoded result,
+// so a 46px row costs ~16KB of pixels instead of a full-resolution thumbnail
+// decode. keyed by url + target pixel size; network bytes are cached by URLCache.
+actor ArtworkLoader {
+    static let shared = ArtworkLoader()
+    private let cache = NSCache<NSString, CGImage>()
+    private let session: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.urlCache = URLCache(memoryCapacity: 8 << 20, diskCapacity: 256 << 20)
+        c.requestCachePolicy = .returnCacheDataElseLoad
+        return URLSession(configuration: c)
+    }()
+
+    func image(for url: URL, maxPixel: Int) async -> CGImage? {
+        let key = "\(url.absoluteString)@\(maxPixel)" as NSString
+        if let hit = cache.object(forKey: key) { return hit }
+        guard let (data, _) = try? await session.data(from: url),
+              let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ]
+        guard let img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        cache.setObject(img, forKey: key)
+        return img
+    }
+}
+
 // square artwork with graceful placeholder
 struct Artwork: View {
     let url: URL?
     var size: CGFloat = 46
     var corner: CGFloat = 6
+    @Environment(\.displayScale) private var scale
+    @State private var image: CGImage?
 
     var body: some View {
-        AsyncImage(url: url) { img in
-            img.resizable().aspectRatio(contentMode: .fill)
-        } placeholder: {
-            Rectangle().fill(.quaternary)
-                .overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
+        Group {
+            if let image {
+                Image(image, scale: scale, label: Text("")).resizable().aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle().fill(.quaternary)
+                    .overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
+            }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: corner))
+        .task(id: url) {
+            image = nil    // reset so recycled rows (LazyVStack) don't show stale art
+            guard let url else { return }
+            image = await ArtworkLoader.shared.image(for: url, maxPixel: Int((size * scale).rounded()))
+        }
     }
 }
 

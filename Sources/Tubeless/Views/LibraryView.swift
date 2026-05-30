@@ -166,7 +166,7 @@ struct TrackListPage: View {
                     Text("No songs yet.").foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 160)
                 } else {
-                    VStack(spacing: 2) {
+                    LazyVStack(spacing: 2) {
                         ForEach(tracks) { t in
                             let row = TrackRow(track: t, inPlaylist: playlistID) {
                                 nav.play(t, context: tracks, on: player)
