@@ -5,6 +5,7 @@ struct ExpandedPlayerView: View {
     @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var nav: AppNavigation
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var downloads: DownloadManager
     @State private var dragging: Track?
     @State private var dropTarget: String?
     @State private var autoScroll = 0       // -1 up / +1 down while hovering an edge
@@ -53,10 +54,10 @@ struct ExpandedPlayerView: View {
                             .foregroundStyle(library.isLiked(track) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                     }
                     .buttonStyle(.icon).tooltip(library.isLiked(track) ? "Unlike" : "Like")
-                    if player.downloading.contains(track.id) {
+                    if downloads.isActive(track.id) {
                         ProgressView().controlSize(.small)
                     } else {
-                        Button { player.download(track) } label: { Image(systemName: "arrow.down.circle") }
+                        Button { downloads.start(track) } label: { Image(systemName: "arrow.down.circle") }
                             .buttonStyle(.icon).foregroundStyle(.secondary).tooltip("Download MP3")
                     }
                     ShareButton(track: track).foregroundStyle(.secondary)

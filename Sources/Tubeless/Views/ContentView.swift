@@ -43,6 +43,7 @@ struct ContentView: View {
                 SuggestionsList().padding(.leading, 20).padding(.top, 4)
             }
         }
+        .overlay(alignment: .bottomTrailing) { DownloadsOverlay() }
     }
 
     @ViewBuilder private var pageContent: some View {

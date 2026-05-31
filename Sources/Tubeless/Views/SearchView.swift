@@ -3,12 +3,10 @@ import SwiftUI
 struct SearchView: View {
     @EnvironmentObject var nav: AppNavigation
     @EnvironmentObject var player: AudioPlayer
-    @EnvironmentObject var settings: AppSettings
-    @State private var resolvingAlbum: String?     // release-group id currently being opened
 
     private var isEmpty: Bool {
-        nav.searchResults.isEmpty && nav.searchArtists.isEmpty
-            && nav.searchAlbums.isEmpty && nav.searchPlaylists.isEmpty
+        nav.searchResults.isEmpty && nav.searchArtists.isEmpty && nav.searchAlbums.isEmpty
+            && nav.searchPlaylists.isEmpty && nav.searchYTPlaylists.isEmpty
     }
 
     var body: some View {
@@ -22,7 +20,7 @@ struct SearchView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !nav.searchArtists.isEmpty { artistSection }
                     if !nav.searchAlbums.isEmpty { albumSection }
-                    if !nav.searchPlaylists.isEmpty { playlistSection }
+                    if !nav.searchPlaylists.isEmpty || !nav.searchYTPlaylists.isEmpty { playlistSection }
                     if !nav.searchResults.isEmpty { songSection }
                 }
                 .padding(.bottom, 24)
@@ -39,8 +37,12 @@ struct SearchView: View {
         SectionHeader(title: "Albums")
         cardRow {
             ForEach(nav.searchAlbums) { album in
-                ReleaseCard(release: album.release, resolving: resolvingAlbum == album.id) {
-                    playAlbum(album)
+                CoverCard(title: album.title,
+                          subtitle: album.subtitle,
+                          coverURL: album.coverURL,
+                          tooltipText: "Play “\(album.title)”") {
+                    // tracks are already resolved from YouTube Music — play immediately
+                    if let first = album.tracks.first { nav.play(first, context: album.tracks, on: player) }
                 }
             }
         }
@@ -48,7 +50,10 @@ struct SearchView: View {
 
     @ViewBuilder private var playlistSection: some View {
         SectionHeader(title: "Playlists")
-        cardRow { ForEach(nav.searchPlaylists) { PlaylistCard(playlist: $0) } }
+        cardRow {
+            ForEach(nav.searchPlaylists) { PlaylistCard(playlist: $0) }
+            ForEach(nav.searchYTPlaylists) { MusicPlaylistCard(playlist: $0) }
+        }
     }
 
     @ViewBuilder private var songSection: some View {
@@ -65,29 +70,6 @@ struct SearchView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 16) { content() }
                 .padding(.horizontal, 20).padding(.vertical, 4)
-        }
-    }
-
-    // play an album: resolve its MusicBrainz tracklist to YouTube, play the first
-    // track immediately and fill the rest into the queue as they load (mirrors the
-    // artist page's release playback, using the album's own artist credit).
-    private func playAlbum(_ album: AlbumResult) {
-        guard resolvingAlbum == nil else { return }
-        resolvingAlbum = album.id
-        let artist = album.artist
-        Task {
-            let titles = await ArtistService.tracklist(releaseGroupID: album.id)
-            var queries = titles.isEmpty ? ["\(artist) \(album.release.title)"]
-                                         : titles.map { "\(artist) \($0)" }
-            while !queries.isEmpty {
-                let q = queries.removeFirst()
-                if let t = try? await YTDLPService.shared.firstResult(for: q, ytdlp: settings.ytdlpPath) {
-                    nav.play(t, context: [t], on: player)
-                    break
-                }
-            }
-            resolvingAlbum = nil
-            player.fillQueue(resolving: queries, ytdlp: settings.ytdlpPath)
         }
     }
 

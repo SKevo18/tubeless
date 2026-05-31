@@ -20,7 +20,6 @@ final class AudioPlayer: ObservableObject {
     @Published private(set) var segments: [SponsorSegment] = []
     @Published private(set) var skippedSegment: String?
     @Published var lastError: String?
-    @Published var downloading: Set<String> = []
     @Published private(set) var loadingQueue = 0    // album tracks still resolving into the queue
 
     @Published var volume: Double = AppSettings.shared.volume {
@@ -294,29 +293,6 @@ final class AudioPlayer: ObservableObject {
             }
             if !wasCurrent { self.startStream() }   // seed wasn't playing → start it
             self.refreshAutoplay()
-        }
-    }
-
-    // MARK: - download
-
-    func download(_ track: Track) {
-        guard !downloading.contains(track.id) else { return }
-        downloading.insert(track.id)
-        let quality = settings.downloadQuality
-        let ytdlp = settings.ytdlpPath
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                ?? FileManager.default.homeDirectoryForCurrentUser
-            do {
-                let url = try await YTDLPService.shared.download(
-                    id: track.id, quality: quality, to: folder, ytdlp: ytdlp)
-                self.flash("Downloaded \(url.lastPathComponent)")
-            } catch {
-                self.lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                self.flash("Download failed — is ffmpeg installed?")
-            }
-            self.downloading.remove(track.id)
         }
     }
 

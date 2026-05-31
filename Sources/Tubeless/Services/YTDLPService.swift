@@ -73,20 +73,80 @@ actor YTDLPService {
         return url
     }
 
-    // download a video's audio as MP3 at the given bitrate (needs ffmpeg). returns the file URL.
-    func download(id: String, quality: String, to folder: URL, ytdlp: String) async throws -> URL {
+    // download a video's audio as MP3 at the given bitrate (needs ffmpeg). streams
+    // download progress (0…1) via `onProgress`, is cancellable, and returns the
+    // final file URL. `--newline` + a custom progress template make each update a
+    // parseable "DLPROG|<percent>" line on stdout; `--print after_move` gives the
+    // final path as "DONE|<path>".
+    func download(id: String, quality: String, to folder: URL, ytdlp: String,
+                  onProgress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        guard FileManager.default.isExecutableFile(atPath: ytdlp) else {
+            throw YTError.ytdlpMissing(ytdlp)
+        }
+        try Task.checkCancellation()
         let template = folder.appendingPathComponent("%(title)s.%(ext)s").path
-        let data = try await run(
-            ["-x", "--audio-format", "mp3", "--audio-quality", "\(quality)K",
-             "--no-playlist", "--no-warnings", "--add-metadata",
-             "-o", template, "--print", "after_move:filepath",
-             "https://www.youtube.com/watch?v=\(id)"],
-            ytdlp: ytdlp)
-        let path = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: "\n").last ?? ""
-        guard !path.isEmpty else { throw YTError.processFailed("Download produced no file.") }
-        return URL(fileURLWithPath: path)
+        // --print makes yt-dlp quiet; --progress forces the progress lines back on
+        let args = ["-x", "--audio-format", "mp3", "--audio-quality", "\(quality)K",
+                    "--no-playlist", "--no-warnings", "--add-metadata",
+                    "--newline", "--progress",
+                    "--progress-template", "download:DLPROG|%(progress._percent_str)s",
+                    "--print", "after_move:DONE|%(filepath)s",
+                    "-o", template,
+                    "https://www.youtube.com/watch?v=\(id)"]
+        let box = ProcessBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let proc = Process()
+                    proc.executableURL = URL(fileURLWithPath: ytdlp)
+                    proc.arguments = args
+                    let out = Pipe(), err = Pipe()
+                    proc.standardOutput = out
+                    proc.standardError = err
+                    do { try box.start(proc) }
+                    catch { cont.resume(throwing: error); return }
+                    let handle = out.fileHandleForReading
+                    var buffer = Data()
+                    var resultPath: String?
+                    // read stdout incrementally; availableData returns empty at EOF
+                    while case let chunk = handle.availableData, !chunk.isEmpty {
+                        buffer.append(chunk)
+                        while let nl = buffer.firstIndex(of: 0x0A) {
+                            let line = String(decoding: buffer[buffer.startIndex..<nl], as: UTF8.self)
+                            buffer.removeSubrange(buffer.startIndex...nl)
+                            if line.hasPrefix("DLPROG|") {
+                                if let pct = Self.parsePercent(line) { onProgress(pct) }
+                            } else if line.hasPrefix("DONE|") {
+                                resultPath = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                            }
+                        }
+                    }
+                    let errData = err.fileHandleForReading.readDataToEndOfFile()
+                    proc.waitUntilExit()
+                    if box.isCancelled {
+                        cont.resume(throwing: CancellationError())
+                    } else if let path = resultPath, !path.isEmpty {
+                        cont.resume(returning: URL(fileURLWithPath: path))
+                    } else {
+                        let msg = String(data: errData, encoding: .utf8) ?? "exit \(proc.terminationStatus)"
+                        cont.resume(throwing: YTError.processFailed(
+                            msg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? "Download produced no file." : msg.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    }
+                }
+            }
+        } onCancel: {
+            box.cancel()
+        }
+    }
+
+    // "DLPROG|  4.9%" → 0.049
+    private static func parsePercent(_ line: String) -> Double? {
+        let parts = line.split(separator: "|")
+        guard parts.count >= 2 else { return nil }
+        let s = parts[1].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "%", with: "")
+        guard let v = Double(s) else { return nil }
+        return min(max(v / 100, 0), 1)
     }
 
     // import a YouTube playlist URL → (title, tracks)
@@ -157,26 +217,80 @@ actor YTDLPService {
     }
 
     private func run(_ args: [String], ytdlp: String) async throws -> Data {
+        try await Self.runProcess(args, ytdlp: ytdlp)
+    }
+
+    // every yt-dlp call funnels through here. it runs off the cooperative pool
+    // (so resolves can fan out in parallel) and, crucially, terminates the child
+    // process when the surrounding Task is cancelled — e.g. when the user starts
+    // a new search or navigates away — instead of letting it run to completion.
+    static func runProcess(_ args: [String], ytdlp: String) async throws -> Data {
         guard FileManager.default.isExecutableFile(atPath: ytdlp) else {
             throw YTError.ytdlpMissing(ytdlp)
         }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: ytdlp)
-        proc.arguments = args
-        let out = Pipe(), err = Pipe()
-        proc.standardOutput = out
-        proc.standardError = err
-        try proc.run()
-        // read fully before waiting to avoid pipe-buffer deadlock on large output
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        // yt-dlp returns nonzero with --ignore-errors yet still emits valid lines;
-        // only fail hard when we got nothing usable back.
-        if proc.terminationStatus != 0 && data.isEmpty {
-            let msg = String(data: errData, encoding: .utf8) ?? "exit \(proc.terminationStatus)"
-            throw YTError.processFailed(msg.trimmingCharacters(in: .whitespacesAndNewlines))
+        try Task.checkCancellation()
+        let box = ProcessBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let proc = Process()
+                    proc.executableURL = URL(fileURLWithPath: ytdlp)
+                    proc.arguments = args
+                    let out = Pipe(), err = Pipe()
+                    proc.standardOutput = out
+                    proc.standardError = err
+                    // launches unless the task was already cancelled
+                    do { try box.start(proc) }
+                    catch { cont.resume(throwing: error); return }
+                    // read fully before waiting to avoid pipe-buffer deadlock on large output
+                    let data = out.fileHandleForReading.readDataToEndOfFile()
+                    let errData = err.fileHandleForReading.readDataToEndOfFile()
+                    proc.waitUntilExit()
+                    if box.isCancelled {
+                        // process was terminated mid-flight; report it as cancellation
+                        cont.resume(throwing: CancellationError())
+                    } else if proc.terminationStatus != 0 && data.isEmpty {
+                        // yt-dlp returns nonzero with --ignore-errors yet still emits valid
+                        // lines; only fail hard when we got nothing usable back.
+                        let msg = String(data: errData, encoding: .utf8) ?? "exit \(proc.terminationStatus)"
+                        cont.resume(throwing: YTError.processFailed(msg.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    } else {
+                        cont.resume(returning: data)
+                    }
+                }
+            }
+        } onCancel: {
+            box.cancel()
         }
-        return data
+    }
+}
+
+// guards the yt-dlp process so the cancellation handler can terminate it without
+// racing the background launch: `start` and `cancel` are serialized, and a
+// process is only signalled once it has actually launched.
+private final class ProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var proc: Process?
+    private var didCancel = false
+
+    // launch the process unless the task was cancelled first (throws if so)
+    func start(_ proc: Process) throws {
+        lock.lock(); defer { lock.unlock() }
+        if didCancel { throw CancellationError() }
+        try proc.run()
+        self.proc = proc
+    }
+
+    var isCancelled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return didCancel
+    }
+
+    func cancel() {
+        lock.lock()
+        didCancel = true
+        let launched = proc
+        lock.unlock()
+        launched?.terminate()
     }
 }

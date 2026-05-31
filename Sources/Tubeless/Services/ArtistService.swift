@@ -31,14 +31,6 @@ struct Release: Identifiable, Hashable {
     var coverURL: URL? { URL(string: "https://coverartarchive.org/release-group/\(id)/front-250") }
 }
 
-// a release-group search hit: the release plus its artist credit, so search
-// results can resolve it to YouTube and play it like the artist page does
-struct AlbumResult: Identifiable, Hashable {
-    let release: Release
-    let artist: String
-    var id: String { release.id }
-}
-
 enum ArtistService {
     // identify this client to MusicBrainz/Wikipedia as their guidelines ask
     private static let userAgent = "Tubeless/1.0 ( https://github.com/SKevo18/tubeless-audio-mac )"
@@ -108,40 +100,6 @@ enum ArtistService {
         return MBArtist(id: id, wikidataID: wikidataID, wikipediaTitle: wikipediaTitle)
     }
 
-    // free-text release-group search for the "Albums" section of search results,
-    // ranked by MusicBrainz relevance. keeps albums/EPs and skips comps/live/etc.
-    static func searchReleases(_ query: String, limit: Int) async -> [AlbumResult] {
-        var comp = URLComponents(string: "https://musicbrainz.org/ws/2/release-group")!
-        comp.queryItems = [
-            .init(name: "query", value: query),
-            .init(name: "fmt", value: "json"),
-            .init(name: "limit", value: String(limit)),
-        ]
-        guard let url = comp.url, let data = await get(url),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let groups = root["release-groups"] as? [[String: Any]] else { return [] }
-
-        var out: [AlbumResult] = []
-        var seen = Set<String>()
-        for g in groups {
-            guard let id = g["id"] as? String, let title = g["title"] as? String,
-                  seen.insert(id).inserted else { continue }
-            if !((g["secondary-types"] as? [String]) ?? []).isEmpty { continue }
-            let kind: Release.Kind
-            switch g["primary-type"] as? String {
-            case "Album": kind = .album
-            case "EP": kind = .ep
-            default: continue
-            }
-            let artist = (g["artist-credit"] as? [[String: Any]])?.first?["name"] as? String ?? ""
-            let year = (g["first-release-date"] as? String)?.prefix(4)
-            out.append(AlbumResult(
-                release: Release(id: id, title: title, year: year.map(String.init), kind: kind),
-                artist: artist))
-        }
-        return out
-    }
-
     private static func releaseGroups(artistID: String) async -> [Release] {
         var comp = URLComponents(string: "https://musicbrainz.org/ws/2/release-group")!
         comp.queryItems = [
@@ -174,28 +132,6 @@ enum ArtistService {
         }
         // newest first, undated last
         return out.sorted { ($0.year ?? "0") > ($1.year ?? "0") }
-    }
-
-    // ordered track titles of a release-group's first release, for playback.
-    // one request (browse release with inc=recordings).
-    static func tracklist(releaseGroupID id: String) async -> [String] {
-        var comp = URLComponents(string: "https://musicbrainz.org/ws/2/release")!
-        comp.queryItems = [
-            .init(name: "release-group", value: id),
-            .init(name: "inc", value: "recordings"),
-            .init(name: "fmt", value: "json"),
-            .init(name: "limit", value: "1"),
-        ]
-        guard let url = comp.url, let data = await get(url),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let media = (root["releases"] as? [[String: Any]])?.first?["media"] as? [[String: Any]] else { return [] }
-        var titles: [String] = []
-        for m in media {
-            for track in (m["tracks"] as? [[String: Any]]) ?? [] {
-                if let title = track["title"] as? String, !title.isEmpty { titles.append(title) }
-            }
-        }
-        return titles
     }
 
     // MARK: - Wikidata → Wikipedia

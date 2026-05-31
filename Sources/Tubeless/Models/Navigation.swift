@@ -19,7 +19,12 @@ struct ArtistResult: Identifiable, Hashable {
 
 @MainActor
 final class AppNavigation: ObservableObject {
-    @Published var page: Page = .home
+    @Published var page: Page = .home {
+        didSet {
+            // leaving the search page: stop its in-flight yt-dlp work
+            if oldValue == .search && page != .search { searchTask?.cancel() }
+        }
+    }
     // big "now playing" view visible — remembered across launches
     @Published var expanded = AppSettings.shared.playerExpanded {
         didSet { AppSettings.shared.playerExpanded = expanded }
@@ -27,12 +32,14 @@ final class AppNavigation: ObservableObject {
     @Published var query = ""
     @Published var searchResults: [Track] = []
     @Published var searchArtists: [ArtistResult] = []
-    @Published var searchAlbums: [AlbumResult] = []
+    @Published var searchAlbums: [MusicAlbum] = []
     @Published var searchPlaylists: [Playlist] = []
+    @Published var searchYTPlaylists: [MusicPlaylist] = []
     @Published var searching = false
     @Published var searchError: String?
     @Published var suggestions: [String] = []
     @Published var showSuggestions = false
+    private var searchTask: Task<Void, Never>?
 
     // discovery is cached for the session so Home doesn't refetch on every visit
     @Published var discovery: [Track] = []
@@ -97,32 +104,48 @@ final class AppNavigation: ObservableObject {
     func runSearch(on settings: AppSettings) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
+        searchTask?.cancel()    // supersede any in-flight search (and its yt-dlp processes)
         page = .search
         expanded = false        // collapse the big player when searching
         showSuggestions = false
         searching = true
         searchError = nil
-        searchResults = []; searchArtists = []; searchAlbums = []
+        searchResults = []; searchArtists = []; searchAlbums = []; searchYTPlaylists = []
         // local playlists match instantly by name
         searchPlaylists = LibraryStore.shared.playlists.filter {
             $0.name.range(of: q, options: .caseInsensitive) != nil
         }
-        Task {
-            // albums (MusicBrainz) resolve in parallel with the YouTube song search
-            async let albumsTask = ArtistService.searchReleases(q, limit: 12)
+        let ytdlp = settings.ytdlpPath
+        searchTask = Task {
+            // albums / artists / playlists come straight from YouTube Music, in
+            // parallel with the song search (songs stay on plain ytsearch since
+            // per-song music metadata would need slow per-video fetches).
+            async let albumsTask = YTMusicService.searchAlbums(q, limit: 8, ytdlp: ytdlp)
+            async let artistsTask = YTMusicService.searchArtists(q, limit: 8, ytdlp: ytdlp)
+            async let playlistsTask = YTMusicService.searchPlaylists(q, limit: 6, ytdlp: ytdlp)
             var found: [Track] = []
             var failure: String?
             do {
                 found = try await YTDLPService.shared.search(
-                    q, limit: 25, preferSongs: settings.preferSongVersions, ytdlp: settings.ytdlpPath)
+                    q, limit: 25, preferSongs: settings.preferSongVersions, ytdlp: ytdlp)
             } catch {
                 failure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
+            let albums = await albumsTask
+            let ytArtists = await artistsTask
+            let ytPlaylists = await playlistsTask
+            // a superseded search must not clobber the newer one's results
+            guard !Task.isCancelled else { return }
             searchResults = found
-            searchArtists = Self.deriveArtists(from: found, limit: 10)
-            searchAlbums = await albumsTask
-            let nothing = found.isEmpty && searchArtists.isEmpty
-                && searchAlbums.isEmpty && searchPlaylists.isEmpty
+            // prefer YT Music's canonical artists; fall back to ones derived from
+            // the song results when the music search comes up empty.
+            searchArtists = ytArtists.isEmpty
+                ? Self.deriveArtists(from: found, limit: 10)
+                : ytArtists.map { ArtistResult(name: $0.name, imageURL: $0.imageURL) }
+            searchAlbums = albums
+            searchYTPlaylists = ytPlaylists
+            let nothing = found.isEmpty && searchArtists.isEmpty && searchAlbums.isEmpty
+                && searchPlaylists.isEmpty && searchYTPlaylists.isEmpty
             searchError = nothing ? (failure ?? "No results.") : nil
             searching = false
         }

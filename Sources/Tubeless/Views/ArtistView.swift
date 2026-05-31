@@ -130,7 +130,11 @@ struct ArtistView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 16) {
                     ForEach(items) { r in
-                        ReleaseCard(release: r, resolving: resolvingRelease == r.id) { playRelease(r) }
+                        CoverCard(title: r.title,
+                                  subtitle: [r.year, r.kind.rawValue].compactMap { $0 }.joined(separator: " · "),
+                                  coverURL: r.coverURL,
+                                  tooltipText: "Play “\(r.title)”",
+                                  resolving: resolvingRelease == r.id) { playRelease(r) }
                     }
                 }
                 .padding(.horizontal, 20).padding(.vertical, 4)
@@ -153,23 +157,17 @@ struct ArtistView: View {
 
     // MARK: - loading
 
-    // play a release: resolve its MusicBrainz tracklist to YouTube, play the
-    // first track immediately and fill the rest into the queue as they load.
+    // play a release: match it to its YouTube Music album and play that album's
+    // own track uploads directly — no per-track searching.
     private func playRelease(_ r: Release) {
         guard resolvingRelease == nil else { return }
         resolvingRelease = r.id
         Task {
-            let titles = await ArtistService.tracklist(releaseGroupID: r.id)
-            var queries = titles.isEmpty ? ["\(name) \(r.title)"] : titles.map { "\(name) \($0)" }
-            while !queries.isEmpty {
-                let q = queries.removeFirst()
-                if let t = try? await YTDLPService.shared.firstResult(for: q, ytdlp: settings.ytdlpPath) {
-                    nav.play(t, context: [t], on: player)
-                    break
-                }
-            }
+            let album = await YTMusicService.album(artist: name, title: r.title, ytdlp: settings.ytdlpPath)
             resolvingRelease = nil
-            player.fillQueue(resolving: queries, ytdlp: settings.ytdlpPath)
+            if let tracks = album?.tracks, let first = tracks.first {
+                nav.play(first, context: tracks, on: player)
+            }
         }
     }
 
@@ -186,38 +184,5 @@ struct ArtistView: View {
         let (i, r) = await profileTask
         info = i; loadingInfo = false
         releases = r; loadingDisco = false
-    }
-}
-
-// album / single cover that resolves the release to YouTube and plays it on tap
-struct ReleaseCard: View {
-    let release: Release
-    var resolving: Bool = false
-    var onPlay: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ZStack {
-                Artwork(url: release.coverURL, size: 148, corner: 10)
-                if resolving {
-                    RoundedRectangle(cornerRadius: 10).fill(.black.opacity(0.45))
-                        .frame(width: 148, height: 148)
-                    ProgressView().controlSize(.large).tint(.white)
-                } else if hovering {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 36)).foregroundStyle(.white, .tint)
-                        .shadow(radius: 4)
-                }
-            }
-            Text(release.title).font(.subheadline).lineLimit(1).frame(width: 148, alignment: .leading)
-            Text([release.year, release.kind.rawValue].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary).frame(width: 148, alignment: .leading)
-        }
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .pointerCursor()
-        .tooltip("Play “\(release.title)”")
-        .onTapGesture { onPlay() }
     }
 }

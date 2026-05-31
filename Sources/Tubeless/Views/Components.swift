@@ -443,6 +443,69 @@ struct SectionHeader: View {
     }
 }
 
+// a square cover tile (album / single / release) that plays its collection on
+// tap; shows a spinner while a tap is still resolving its tracks.
+struct CoverCard: View {
+    let title: String
+    let subtitle: String
+    let coverURL: URL?
+    var tooltipText: String
+    var resolving: Bool = false
+    var onPlay: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack {
+                Artwork(url: coverURL, size: 148, corner: 10)
+                if resolving {
+                    RoundedRectangle(cornerRadius: 10).fill(.black.opacity(0.45))
+                        .frame(width: 148, height: 148)
+                    ProgressView().controlSize(.large).tint(.white)
+                } else if hovering {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 36)).foregroundStyle(.white, .tint)
+                        .shadow(radius: 4)
+                }
+            }
+            Text(title).font(.subheadline).lineLimit(1).frame(width: 148, alignment: .leading)
+            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                .lineLimit(1).frame(width: 148, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .pointerCursor()
+        .tooltip(tooltipText)
+        .onTapGesture { onPlay() }
+    }
+}
+
+// a YouTube Music playlist hit: plays its resolved tracks, with the usual
+// shuffle / radio actions on right-click
+struct MusicPlaylistCard: View {
+    let playlist: MusicPlaylist
+    @EnvironmentObject var nav: AppNavigation
+    @EnvironmentObject var player: AudioPlayer
+
+    var body: some View {
+        CoverCard(title: playlist.title,
+                  subtitle: "\(playlist.tracks.count) songs",
+                  coverURL: playlist.coverURL,
+                  tooltipText: "Play “\(playlist.title)”") {
+            if let first = playlist.tracks.first {
+                nav.play(first, context: playlist.tracks, on: player)
+            }
+        }
+        .contextMenu {
+            Button("Play") {
+                if let first = playlist.tracks.first { nav.play(first, context: playlist.tracks, on: player) }
+            }
+            Button("Shuffle") { nav.playShuffled(playlist.tracks, on: player) }
+            Button("Start radio") { nav.startRadio(from: playlist.tracks, on: player) }
+        }
+    }
+}
+
 // a single-click-to-play list row with current highlight, like + overflow menu
 struct TrackRow: View {
     let track: Track
@@ -452,6 +515,7 @@ struct TrackRow: View {
 
     @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var downloads: DownloadManager
     @State private var hovering = false
 
     private var isCurrent: Bool { player.currentTrack?.id == track.id }
@@ -508,10 +572,10 @@ struct TrackRow: View {
                         Label("Start radio", systemImage: "dot.radiowaves.left.and.right")
                     }
                     Divider()
-                    if player.downloading.contains(track.id) {
+                    if downloads.isActive(track.id) {
                         Button("Downloading…") {}.disabled(true)
                     } else {
-                        Button { player.download(track) } label: { Label("Download MP3", systemImage: "arrow.down.circle") }
+                        Button { downloads.start(track) } label: { Label("Download MP3", systemImage: "arrow.down.circle") }
                     }
                     Button {
                         let pb = NSPasteboard.general
