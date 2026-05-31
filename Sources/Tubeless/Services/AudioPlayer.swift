@@ -44,7 +44,9 @@ final class AudioPlayer: ObservableObject {
             self.track = track
             item = AVPlayerItem(url: url)
             item.preferredForwardBufferDuration = bufferSeconds
-            player.automaticallyWaitsToMinimizeStalling = true
+            // start playing as soon as the first samples arrive instead of waiting
+            // to pre-buffer — shaves a second or two off a fresh track's start
+            player.automaticallyWaitsToMinimizeStalling = false
             player.replaceCurrentItem(with: item)
         }
         func beginFade(to target: Double, duration: Double, now: Double) {

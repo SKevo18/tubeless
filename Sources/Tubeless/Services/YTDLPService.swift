@@ -60,12 +60,26 @@ actor YTDLPService {
     // resolve a direct, AVPlayer-compatible (m4a/AAC) audio URL for a video id.
     // itag 140 is the standard full-length 128k AAC track; preferring it avoids
     // partial/throttled DASH streams that cut out mid-song.
+    //
+    // the android_vr client returns itag 140 without any JS signature solving, so
+    // it resolves in ~2s vs ~4s for yt-dlp's default client probing. fall back to
+    // the default clients only if it fails (rare: age-gated/region-locked videos).
     func audioStreamURL(for id: String, ytdlp: String) async throws -> URL {
-        let data = try await run(
-            ["-f", "140/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio",
-             "-g", "--no-warnings", "--no-playlist",
-             "https://www.youtube.com/watch?v=\(id)"],
-            ytdlp: ytdlp)
+        do {
+            return try await streamURL(for: id, ytdlp: ytdlp, client: "android_vr")
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return try await streamURL(for: id, ytdlp: ytdlp, client: nil)
+        }
+    }
+
+    private func streamURL(for id: String, ytdlp: String, client: String?) async throws -> URL {
+        var args = ["-f", "140/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio",
+                    "-g", "--no-warnings", "--no-playlist"]
+        if let client { args += ["--extractor-args", "youtube:player_client=\(client)"] }
+        args.append("https://www.youtube.com/watch?v=\(id)")
+        let data = try await run(args, ytdlp: ytdlp)
         let text = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard let first = text.split(separator: "\n").first,
