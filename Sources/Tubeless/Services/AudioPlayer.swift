@@ -66,6 +66,12 @@ final class AudioPlayer: ObservableObject {
     private var current: Stream?
     private var fadingOut: [Stream] = []
     private var cache: [String: Stream] = [:]      // buffered streams around the pointer (prev + next)
+    // speculatively-resolved streams from hovering a track row; LRU-capped and
+    // kept separate so maintainCache (prev/next window) never evicts them
+    private var hoverCache: [String: Stream] = [:]
+    private var hoverOrder: [String] = []
+    private var hoverTasks: [String: Task<Void, Never>] = [:]
+    private let hoverCacheLimit = 4
     private var timeObserver: Any?
     private var observedPlayer: AVPlayer?
     private var fadeTimer: Timer?
@@ -314,7 +320,8 @@ final class AudioPlayer: ObservableObject {
 
         retire(current); current = nil
 
-        if let cached = cache.removeValue(forKey: track.id) {
+        hoverTasks[track.id]?.cancel(); hoverTasks[track.id] = nil
+        if let cached = cache.removeValue(forKey: track.id) ?? takeHoverCached(track.id) {
             segments = cached.segments
             promote(cached, autoPlay: autoPlay, startAt: startAt)
             isLoading = false
@@ -481,6 +488,47 @@ final class AudioPlayer: ObservableObject {
                 s.segments = segs
                 self.cache[t.id] = s
             }
+        }
+    }
+
+    // MARK: - hover prefetch
+
+    // speculatively resolve + buffer a track the user is hovering, so a click
+    // plays it instantly. cheap and bounded: deduped, LRU-capped, and a no-op if
+    // it's already cached, playing, or in flight.
+    func prefetch(_ track: Track) {
+        guard settings.prefetchOnHover else { return }
+        let id = track.id
+        if id == currentTrack?.id || cache[id] != nil || hoverCache[id] != nil || hoverTasks[id] != nil {
+            return
+        }
+        guard hoverTasks.count < 3 else { return }   // don't let resolves pile up
+        hoverTasks[id] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.hoverTasks[id] = nil }
+            guard let (url, segs) = try? await self.resolve(track) else { return }
+            // bail if it became irrelevant while resolving
+            if Task.isCancelled || id == self.currentTrack?.id
+                || self.cache[id] != nil || self.hoverCache[id] != nil { return }
+            let s = Stream(track: track, url: url, bufferSeconds: self.settings.prebufferSeconds)
+            s.player.isMuted = true
+            s.segments = segs
+            self.hoverCache[id] = s
+            self.hoverOrder.append(id)
+            self.trimHoverCache()
+        }
+    }
+
+    private func takeHoverCached(_ id: String) -> Stream? {
+        guard let s = hoverCache.removeValue(forKey: id) else { return nil }
+        hoverOrder.removeAll { $0 == id }
+        return s
+    }
+
+    private func trimHoverCache() {
+        while hoverOrder.count > hoverCacheLimit {
+            let id = hoverOrder.removeFirst()
+            hoverCache.removeValue(forKey: id)?.player.pause()
         }
     }
 

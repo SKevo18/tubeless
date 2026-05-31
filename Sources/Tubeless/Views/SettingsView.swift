@@ -67,6 +67,10 @@ struct SettingsView: View {
             Text("Preloading buffers nearby songs (previous + next) so they start instantly.")
                 .font(.caption).foregroundStyle(.secondary)
 
+            Toggle("Prefetch songs on hover", isOn: $settings.prefetchOnHover)
+            Text("Resolves a song's stream while you hover it, so clicking plays almost instantly.")
+                .font(.caption).foregroundStyle(.secondary)
+
             Picker("Download quality", selection: $settings.downloadQuality) {
                 Text("128 kbps").tag("128")
                 Text("192 kbps").tag("192")

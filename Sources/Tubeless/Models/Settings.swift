@@ -29,6 +29,7 @@ final class AppSettings: ObservableObject {
     @Published var fadeInSeconds: Double { didSet { d.set(fadeInSeconds, forKey: K.fadeIn) } }
     @Published var prebufferCount: Int { didSet { d.set(prebufferCount, forKey: K.preCount) } }
     @Published var prebufferSeconds: Double { didSet { d.set(prebufferSeconds, forKey: K.preSecs) } }
+    @Published var prefetchOnHover: Bool { didSet { d.set(prefetchOnHover, forKey: K.hoverPrefetch) } }
 
     @Published var autoQueueRecommendations: Bool { didSet { d.set(autoQueueRecommendations, forKey: K.autoRec) } }
     @Published var recommendationRefreshCount: Int { didSet { d.set(recommendationRefreshCount, forKey: K.recCount) } }
@@ -83,6 +84,7 @@ final class AppSettings: ObservableObject {
         fadeInSeconds = d.object(forKey: K.fadeIn) as? Double ?? 1.0
         prebufferCount = d.object(forKey: K.preCount) as? Int ?? 2
         prebufferSeconds = d.object(forKey: K.preSecs) as? Double ?? 10.0
+        prefetchOnHover = d.object(forKey: K.hoverPrefetch) as? Bool ?? true
         autoQueueRecommendations = d.object(forKey: K.autoRec) as? Bool ?? true
         recommendationRefreshCount = d.object(forKey: K.recCount) as? Int ?? 15
         recentlyPlayedLimit = d.object(forKey: K.recentLimit) as? Int ?? 50
@@ -124,6 +126,7 @@ final class AppSettings: ObservableObject {
         static let fadeIn = "fadeInSeconds"
         static let preCount = "prebufferCount"
         static let preSecs = "prebufferSeconds"
+        static let hoverPrefetch = "prefetchOnHover"
         static let autoRec = "autoQueueRecommendations"
         static let recCount = "recommendationRefreshCount"
         static let recentLimit = "recentlyPlayedLimit"

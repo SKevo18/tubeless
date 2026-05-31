@@ -517,6 +517,7 @@ struct TrackRow: View {
     @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var downloads: DownloadManager
     @State private var hovering = false
+    @State private var prefetchTask: Task<Void, Never>?
 
     private var isCurrent: Bool { player.currentTrack?.id == track.id }
 
@@ -605,7 +606,18 @@ struct TrackRow: View {
                     in: RoundedRectangle(cornerRadius: 8))
         .opacity(dimmed && !isCurrent ? 0.55 : 1)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { inside in
+            hovering = inside
+            // debounce: only prefetch rows the pointer settles on, not ones it
+            // sweeps past, so scanning a list doesn't spawn a pile of resolves
+            prefetchTask?.cancel()
+            guard inside, !isCurrent else { return }
+            prefetchTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                if Task.isCancelled { return }
+                player.prefetch(track)
+            }
+        }
         .pointerCursor()
         .onTapGesture { onPlay() }
     }
